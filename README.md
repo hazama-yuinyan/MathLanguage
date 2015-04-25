@@ -4,7 +4,7 @@
 ## 簡易仕様書
 * 文法はシンプルに。1行1文で文終端記号は使用しない
 * 制御構造もなし。そもそも完全なインタプリタなので、スピード出ないし、本格的な数値計算に使う人なんていないでしょ・・・
-* 型は全部でInteger, Double, BigInt, Decimal, Vector&gt;Integer or Double&lt;, Matrix&gt;Integer or Double&lt;の6種類
+* 型は全部でInteger, Double, BigInt, Decimal, Vector&lt;Integer or Double&gt;, Matrix&lt;Integer or Double&gt;の6種類
 * ただし、型の扱いは厳密ではないので、ユーザに配慮を求めるクソ仕様
 * ベクトルは2次元以上のみ
 * 行列は1行2列以上
