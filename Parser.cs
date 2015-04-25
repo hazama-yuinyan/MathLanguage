@@ -23,12 +23,13 @@ public class Parser {
 	public const int _lparen = 1;
 	public const int _rparen = 2;
 	public const int _equal = 3;
-	public const int _space = 4;
-	public const int _eol = 5;
-	public const int _ident = 6;
-	public const int _integer = 7;
-	public const int _float = 8;
-	public const int maxT = 19;
+	public const int _definer = 4;
+	public const int _space = 5;
+	public const int _eol = 6;
+	public const int _ident = 7;
+	public const int _integer = 8;
+	public const int _float = 9;
+	public const int maxT = 20;
 
 	const bool T = true;
 	const bool x = false;
@@ -59,11 +60,36 @@ static StackMachine stack_machine = new StackMachine();
         }
     }
 
+    bool IsDefiningFunction{
+        get{return instructions != null;}
+    }   
+
+    List<IInstruction> instructions = null;
+
+    Delegate CreateDelegate(IEnumerable<string> argNames)
+    {
+        var method = typeof(UserDefinedFunction).GetMethod("Call");
+        var instance = new UserDefinedFunction(stack_machine, instructions, argNames);
+        var @delegate = Delegate.CreateDelegate(typeof(Action<IList<Variable>>), instance, method);
+        instructions = null;
+        return @delegate;
+    }
+
     bool IsAssignment()
     {
         var x = scanner.Peek();
         scanner.ResetPeek();
         return x.kind == _equal;
+    }
+
+    bool IsFunctionDefinition()
+    {
+        var x = scanner.Peek();
+        while(x.kind != _EOF && x.kind != _eol && x.kind != _definer)
+            x = scanner.Peek();
+
+        scanner.ResetPeek();
+        return x.kind == _definer;
     }
 
 
@@ -126,6 +152,7 @@ static StackMachine stack_machine = new StackMachine();
 
 	
 	void MathLanguage() {
+		Statement();
 		while (StartOf(1)) {
 			Statement();
 		}
@@ -137,17 +164,17 @@ static StackMachine stack_machine = new StackMachine();
 		} else if (StartOf(1)) {
 			Expression();
 			if(Output != null) Output.WriteLine(stack_machine.PeekAtStack()); 
-		} else SynErr(20);
-		if (la.kind == 5) {
-			while (!(la.kind == 0 || la.kind == 5)) {SynErr(21); Get();}
+		} else SynErr(21);
+		if (la.kind == 6) {
+			while (!(la.kind == 0 || la.kind == 6)) {SynErr(22); Get();}
 			Get();
 		} else if (la.kind == 0) {
 			Get();
-		} else SynErr(22);
+		} else SynErr(23);
 	}
 
 	void Assignment() {
-		Expect(6);
+		Expect(7);
 		string name = t.val; 
 		Expect(3);
 		Expression();
@@ -165,11 +192,14 @@ static StackMachine stack_machine = new StackMachine();
 	void Additive() {
 		OperatorType type; 
 		Multiplicative();
-		if (la.kind == 9 || la.kind == 10) {
+		if (la.kind == 10 || la.kind == 11) {
 			AdditiveOperator(out type);
 			Additive();
 			IInstruction inst = (type == OperatorType.Plus) ? new AddOperation() as IInstruction : new SubtractOperation() as IInstruction;
-			stack_machine.Operate(inst);
+			if(IsDefiningFunction)
+			   instructions.Add(inst);
+			else
+			   stack_machine.Operate(inst);
 			
 		}
 	}
@@ -177,106 +207,132 @@ static StackMachine stack_machine = new StackMachine();
 	void Multiplicative() {
 		OperatorType type; 
 		PowerOp();
-		if (la.kind == 11 || la.kind == 12 || la.kind == 13) {
+		if (la.kind == 12 || la.kind == 13 || la.kind == 14) {
 			MultiplicativeOperator(out type);
 			Multiplicative();
 			IInstruction inst = (type == OperatorType.Times) ? new MultiplyOperation() as IInstruction :
 			                   (type == OperatorType.Divide) ? new DivideOperation() as IInstruction : new DotProductOperation() as IInstruction;
-			stack_machine.Operate(inst);
+			if(IsDefiningFunction)
+			   instructions.Add(inst);
+			else
+			   stack_machine.Operate(inst);
 			
 		}
 	}
 
 	void AdditiveOperator(out OperatorType type) {
 		type = OperatorType.None; 
-		if (la.kind == 9) {
+		if (la.kind == 10) {
 			Get();
 			type = OperatorType.Plus; 
-		} else if (la.kind == 10) {
+		} else if (la.kind == 11) {
 			Get();
 			type = OperatorType.Minus; 
-		} else SynErr(23);
+		} else SynErr(24);
 	}
 
 	void PowerOp() {
 		Factor();
-		if (la.kind == 14) {
+		if (la.kind == 15) {
 			Get();
 			Factor();
 			var inst = new PowerOperation();
-			stack_machine.Operate(inst);
+			if(IsDefiningFunction)
+			   instructions.Add(inst);
+			else
+			   stack_machine.Operate(inst);
 			
 		}
 	}
 
 	void MultiplicativeOperator(out OperatorType type) {
 		type = OperatorType.None; 
-		if (la.kind == 11) {
+		if (la.kind == 12) {
 			Get();
 			type = OperatorType.Times; 
-		} else if (la.kind == 12) {
-			Get();
-			type = OperatorType.Divide; 
 		} else if (la.kind == 13) {
 			Get();
+			type = OperatorType.Divide; 
+		} else if (la.kind == 14) {
+			Get();
 			type = OperatorType.Dot; 
-		} else SynErr(24);
+		} else SynErr(25);
 	}
 
 	void Factor() {
 		OperatorType type; 
 		if (StartOf(2)) {
 			Primary();
-		} else if (la.kind == 9 || la.kind == 10) {
+		} else if (la.kind == 10 || la.kind == 11) {
 			PrefixUnaryOperator(out type);
 			Factor();
 			if(type == OperatorType.Minus){
 			   var inst = new NegateOperation();
-			   stack_machine.Operate(inst);
+			   if(IsDefiningFunction)
+			       instructions.Add(inst);
+			   else
+			       stack_machine.Operate(inst);
 			}
 			
-		} else SynErr(25);
-		if (la.kind == 15) {
-			PostfixUnaryOperator(out type);
+		} else SynErr(26);
+		if (la.kind == 16) {
+			Get();
 			var inst = new CalculateFactorialOperation();
-			stack_machine.Operate(inst);
+			if(IsDefiningFunction)
+			   instructions.Add(inst);
+			else
+			   stack_machine.Operate(inst);
 			
 		}
 	}
 
 	void Primary() {
-		IList<Delegate> funcs = null; int num_args = 0; 
-		if (la.kind == 6) {
+		IList<Delegate> funcs = null; int num_args = 0; string name; 
+		if (la.kind == 7) {
 			Get();
+			name = t.val;
 			if(la.kind == _lparen){
-			   funcs = StackMachine.Symbols.GetFunction(t.val);
-			   if(funcs == null){
-			       SemErr(string.Format("{0} is an unknown function name!", t.val));
-			       return;
+			   if(!IsFunctionDefinition()){
+			       funcs = StackMachine.Symbols.GetFunction(name);
+			       if(funcs == null){
+			           SemErr(string.Format("{0} is an unknown function name!", name));
+			           return;
+			       }
 			   }
 			}else{
-			    var value = StackMachine.Symbols.GetVariable(t.val);
-			    stack_machine.PushOnStack(value);
+			   if(IsDefiningFunction){
+			       var inst = new ReferenceSymbolOperation(stack_machine, name);
+			       instructions.Add(inst);
+			   }else{
+			       var value = StackMachine.Symbols.GetVariable(name);
+			       stack_machine.PushOnStack(value);
+			   }
 			}
 			
 			if (la.kind == 1) {
-				Get();
-				var parameters = new List<object>(); 
-				if (StartOf(1)) {
-					Expression();
-					++num_args; 
-					while (la.kind == 16) {
-						Get();
+				if (IsFunctionDefinition()) {
+					FunctionDefinitionTrailer(name);
+				} else {
+					Get();
+					if (StartOf(1)) {
 						Expression();
 						++num_args; 
+						while (la.kind == 17) {
+							Get();
+							Expression();
+							++num_args; 
+						}
 					}
+					Expect(2);
+					var inst = new CallOperation(funcs);
+					if(IsDefiningFunction)
+					   instructions.Add(inst);
+					else
+					   stack_machine.Operate(inst);
+					
 				}
-				Expect(2);
-				var inst = new CallOperation(funcs);
-				stack_machine.Operate(inst);
-				
 			}
-		} else if (la.kind == 7 || la.kind == 8 || la.kind == 17) {
+		} else if (la.kind == 8 || la.kind == 9 || la.kind == 18) {
 			LiteralExpression();
 		} else if (la.kind == 1) {
 			Get();
@@ -290,7 +346,7 @@ static StackMachine stack_machine = new StackMachine();
 			   elems.Add(stack_machine.PopOffStack());
 			}
 			
-			while (la.kind == 4) {
+			while (la.kind == 5) {
 				Get();
 				Expression();
 				++num_elems; elems.Add(stack_machine.PopOffStack()); 
@@ -307,44 +363,55 @@ static StackMachine stack_machine = new StackMachine();
 			}
 			scanner.IsSpaceSignificant = false;
 			
-		} else SynErr(26);
+		} else SynErr(27);
 	}
 
 	void PrefixUnaryOperator(out OperatorType type) {
 		type = OperatorType.None; 
-		if (la.kind == 9) {
+		if (la.kind == 10) {
 			Get();
 			type = OperatorType.Plus; 
-		} else if (la.kind == 10) {
+		} else if (la.kind == 11) {
 			Get();
 			type = OperatorType.Minus; 
-		} else SynErr(27);
+		} else SynErr(28);
 	}
 
-	void PostfixUnaryOperator(out OperatorType type) {
-		Expect(15);
-		type = OperatorType.Exclamation; 
+	void FunctionDefinitionTrailer(string name) {
+		var args = new List<string>(); 
+		Expect(1);
+		while (la.kind == 7) {
+			Get();
+			args.Add(t.val); 
+		}
+		Expect(2);
+		Expect(4);
+		instructions = new List<IInstruction>(); 
+		Expression();
+		StackMachine.Symbols.AddFunction(name, CreateDelegate(args));
+		
 	}
 
 	void LiteralExpression() {
-		if (la.kind == 7) {
+		if (la.kind == 8) {
 			Get();
 			int tmp = int.Parse(t.val);
 			var variable = new Variable(tmp);
 			stack_machine.PushOnStack(variable);
 			
-		} else if (la.kind == 8) {
+		} else if (la.kind == 9) {
 			Get();
-            Variable variable;
-            if(t.val.Length > 8){
-                decimal tmp = decimal.Parse(t.val);
-                variable = new Variable(tmp);
-            }else{
-                double tmp = double.Parse(t.val);
-                variable = new Variable(tmp);
-            }
-                stack_machine.PushOnStack(variable);
-		} else if (la.kind == 17) {
+			Variable variable;
+			if(t.val.Length > 8){
+			   decimal tmp = decimal.Parse(t.val);
+			   variable = new Variable(tmp);
+			}else{
+			   double tmp = double.Parse(t.val);
+			   variable = new Variable(tmp);
+			}
+			stack_machine.PushOnStack(variable);
+			
+		} else if (la.kind == 18) {
 			Get();
 			scanner.IsSpaceSignificant = true;
 			int num_elems = 0;
@@ -353,17 +420,17 @@ static StackMachine stack_machine = new StackMachine();
 			
 			Expression();
 			++num_elems; elems.Add(stack_machine.PopOffStack()); 
-			Expect(4);
+			Expect(5);
 			Expression();
 			++num_elems; elems.Add(stack_machine.PopOffStack()); 
-			while (la.kind == 4 || la.kind == 16) {
-				if (la.kind == 16) {
+			while (la.kind == 5 || la.kind == 17) {
+				if (la.kind == 17) {
 					Get();
 					++rows;
 					if(cols == 0)
 					   cols = num_elems;
 					
-					while (la.kind == 4) {
+					while (la.kind == 5) {
 						Get();
 					}
 				} else {
@@ -372,7 +439,7 @@ static StackMachine stack_machine = new StackMachine();
 				Expression();
 				++num_elems; elems.Add(stack_machine.PopOffStack()); 
 			}
-			Expect(18);
+			Expect(19);
 			if(num_elems % cols != 0){
 			   SemErr(string.Format(
 			       "The matrix should be {0} x {1}, only {2} elements given.",
@@ -393,7 +460,7 @@ static StackMachine stack_machine = new StackMachine();
 			}
 			scanner.IsSpaceSignificant = false;
 			
-		} else SynErr(28);
+		} else SynErr(29);
 	}
 
 
@@ -408,9 +475,9 @@ static StackMachine stack_machine = new StackMachine();
 	}
 	
 	static readonly bool[,] set = {
-		{T,x,x,x, x,T,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x},
-		{x,T,x,x, x,x,T,T, T,T,T,x, x,x,x,x, x,T,x,x, x},
-		{x,T,x,x, x,x,T,T, T,x,x,x, x,x,x,x, x,T,x,x, x}
+		{T,x,x,x, x,x,T,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x},
+		{x,T,x,x, x,x,x,T, T,T,T,T, x,x,x,x, x,x,T,x, x,x},
+		{x,T,x,x, x,x,x,T, T,T,x,x, x,x,x,x, x,x,T,x, x,x}
 
 	};
 } // end Parser
@@ -428,31 +495,32 @@ public class Errors {
 			case 1: s = "lparen expected"; break;
 			case 2: s = "rparen expected"; break;
 			case 3: s = "equal expected"; break;
-			case 4: s = "space expected"; break;
-			case 5: s = "eol expected"; break;
-			case 6: s = "ident expected"; break;
-			case 7: s = "integer expected"; break;
-			case 8: s = "float expected"; break;
-			case 9: s = "\"+\" expected"; break;
-			case 10: s = "\"-\" expected"; break;
-			case 11: s = "\"*\" expected"; break;
-			case 12: s = "\"/\" expected"; break;
-			case 13: s = "\".\" expected"; break;
-			case 14: s = "\"^\" expected"; break;
-			case 15: s = "\"!\" expected"; break;
-			case 16: s = "\",\" expected"; break;
-			case 17: s = "\"[\" expected"; break;
-			case 18: s = "\"]\" expected"; break;
-			case 19: s = "??? expected"; break;
-			case 20: s = "invalid Statement"; break;
-			case 21: s = "this symbol not expected in Statement"; break;
-			case 22: s = "invalid Statement"; break;
-			case 23: s = "invalid AdditiveOperator"; break;
-			case 24: s = "invalid MultiplicativeOperator"; break;
-			case 25: s = "invalid Factor"; break;
-			case 26: s = "invalid Primary"; break;
-			case 27: s = "invalid PrefixUnaryOperator"; break;
-			case 28: s = "invalid LiteralExpression"; break;
+			case 4: s = "definer expected"; break;
+			case 5: s = "space expected"; break;
+			case 6: s = "eol expected"; break;
+			case 7: s = "ident expected"; break;
+			case 8: s = "integer expected"; break;
+			case 9: s = "float expected"; break;
+			case 10: s = "\"+\" expected"; break;
+			case 11: s = "\"-\" expected"; break;
+			case 12: s = "\"*\" expected"; break;
+			case 13: s = "\"/\" expected"; break;
+			case 14: s = "\".\" expected"; break;
+			case 15: s = "\"^\" expected"; break;
+			case 16: s = "\"!\" expected"; break;
+			case 17: s = "\",\" expected"; break;
+			case 18: s = "\"[\" expected"; break;
+			case 19: s = "\"]\" expected"; break;
+			case 20: s = "??? expected"; break;
+			case 21: s = "invalid Statement"; break;
+			case 22: s = "this symbol not expected in Statement"; break;
+			case 23: s = "invalid Statement"; break;
+			case 24: s = "invalid AdditiveOperator"; break;
+			case 25: s = "invalid MultiplicativeOperator"; break;
+			case 26: s = "invalid Factor"; break;
+			case 27: s = "invalid Primary"; break;
+			case 28: s = "invalid PrefixUnaryOperator"; break;
+			case 29: s = "invalid LiteralExpression"; break;
 
 			default: s = "error " + n; break;
 		}

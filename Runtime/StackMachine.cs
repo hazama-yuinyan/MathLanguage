@@ -63,7 +63,10 @@ namespace CalculatorCompetition.Backend.Runtime
                         (parameters.Length == 2) ? func.CreateDelegate(typeof(Func<,,>).MakeGenericType(param_types)) :
                         (parameters.Length == 3) ? func.CreateDelegate(typeof(Func<,,,>).MakeGenericType(param_types)) : null;
                 }
-                Symbols.AddFunction(func.Name, @delegate);
+
+                var func_name = func.Name;
+                func_name = func_name.Substring(0, 1).ToLower() + func_name.Substring(1);
+                Symbols.AddFunction(func_name, @delegate);
             }
         }
 

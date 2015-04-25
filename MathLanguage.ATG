@@ -31,11 +31,36 @@ $namespace=MathLanguage
         }
     }
 
+    bool IsDefiningFunction{
+        get{return instructions != null;}
+    }   
+
+    List<IInstruction> instructions = null;
+
+    Delegate CreateDelegate(IEnumerable<string> argNames)
+    {
+        var method = typeof(UserDefinedFunction).GetMethod("Call");
+        var instance = new UserDefinedFunction(stack_machine, instructions, argNames);
+        var @delegate = Delegate.CreateDelegate(typeof(Action<IList<Variable>>), instance, method);
+        instructions = null;
+        return @delegate;
+    }
+
     bool IsAssignment()
     {
         var x = scanner.Peek();
         scanner.ResetPeek();
         return x.kind == _equal;
+    }
+
+    bool IsFunctionDefinition()
+    {
+        var x = scanner.Peek();
+        while(x.kind != _EOF && x.kind != _eol && x.kind != _definer)
+            x = scanner.Peek();
+
+        scanner.ResetPeek();
+        return x.kind == _definer;
     }
 
 CHARACTERS
@@ -50,6 +75,7 @@ TOKENS
     lparen = '('.
     rparen = ')'.
     equal = '='.
+    definer = ":=".
     space = space.
     eol = lf.
     ident = (letter | '_') {'_' | letter | digit}.
@@ -103,7 +129,10 @@ Additive                            (. OperatorType type; .)
     [ AdditiveOperator<out type>
       Additive                      (.
                                         IInstruction inst = (type == OperatorType.Plus) ? new AddOperation() as IInstruction : new SubtractOperation() as IInstruction;
-                                        stack_machine.Operate(inst);
+                                        if(IsDefiningFunction)
+                                            instructions.Add(inst);
+                                        else
+                                            stack_machine.Operate(inst);
                                     .)
     ].
 /*------------------------------------------------------------------*/
@@ -120,7 +149,10 @@ Multiplicative                      (. OperatorType type; .)
       Multiplicative                (.
                                         IInstruction inst = (type == OperatorType.Times) ? new MultiplyOperation() as IInstruction :
                                                             (type == OperatorType.Divide) ? new DivideOperation() as IInstruction : new DotProductOperation() as IInstruction;
-                                        stack_machine.Operate(inst);
+                                        if(IsDefiningFunction)
+                                            instructions.Add(inst);
+                                        else
+                                            stack_machine.Operate(inst);
                                     .)
     ].
 /*------------------------------------------------------------------*/
@@ -137,7 +169,10 @@ PowerOp
     [ '^'
       Factor                        (.
                                         var inst = new PowerOperation();
-                                        stack_machine.Operate(inst);
+                                        if(IsDefiningFunction)
+                                            instructions.Add(inst);
+                                        else
+                                            stack_machine.Operate(inst);
                                     .)
     ].
 /*------------------------------------------------------------------*/
@@ -148,13 +183,19 @@ Factor                                  (. OperatorType type; .)
       Factor                            (.
                                             if(type == OperatorType.Minus){
                                                 var inst = new NegateOperation();
-                                                stack_machine.Operate(inst);
+                                                if(IsDefiningFunction)
+                                                    instructions.Add(inst);
+                                                else
+                                                    stack_machine.Operate(inst);
                                             }
                                         .)
     )
     [ '!'                               (.
                                             var inst = new CalculateFactorialOperation();
-                                            stack_machine.Operate(inst);
+                                            if(IsDefiningFunction)
+                                                instructions.Add(inst);
+                                            else
+                                                stack_machine.Operate(inst);
                                         .)
     ].
 /*------------------------------------------------------------------*/
@@ -164,24 +205,35 @@ PrefixUnaryOperator<out OperatorType type>  (. type = OperatorType.None; .)
      | '-'                              (. type = OperatorType.Minus; .)
      ).
 /*------------------------------------------------------------------*/
-PostfixUnaryOperator<out OperatorType type>
+/*PostfixUnaryOperator<out OperatorType type>
 =
-    ('!')                               (. type = OperatorType.Exclamation; .).
+    ('!')                               (. type = OperatorType.Exclamation; .).*/
 /*------------------------------------------------------------------*/
-Primary                                 (. IList<Delegate> funcs = null; int num_args = 0; .)
+Primary                                 (. IList<Delegate> funcs = null; int num_args = 0; string name; .)
 =
-    ( ident                             (. if(la.kind == _lparen){
-                                               funcs = StackMachine.Symbols.GetFunction(t.val);
-                                               if(funcs == null){
-                                                   SemErr(string.Format("{0} is an unknown function name!", t.val));
-                                                   return;
-                                               }
+    ( ident                             (.
+                                            name = t.val;
+                                            if(la.kind == _lparen){
+                                                if(!IsFunctionDefinition()){
+                                                    funcs = StackMachine.Symbols.GetFunction(name);
+                                                    if(funcs == null){
+                                                        SemErr(string.Format("{0} is an unknown function name!", name));
+                                                        return;
+                                                    }
+                                                }
                                            }else{
-                                                var value = StackMachine.Symbols.GetVariable(t.val);
-                                                stack_machine.PushOnStack(value);
+                                                if(IsDefiningFunction){
+                                                    var inst = new ReferenceSymbolOperation(stack_machine, name);
+                                                    instructions.Add(inst);
+                                                }else{
+                                                    var value = StackMachine.Symbols.GetVariable(name);
+                                                    stack_machine.PushOnStack(value);
+                                                }
                                            }
                                         .)
-      [ '('                             (. var parameters = new List<object>(); .)
+      [ IF(IsFunctionDefinition())
+        FunctionDefinitionTrailer<name>
+      | '('
         [ Expression                    (. ++num_args; .)
           { ','
             Expression                  (. ++num_args; .)
@@ -189,7 +241,10 @@ Primary                                 (. IList<Delegate> funcs = null; int num
         ]
         ')'                             (.
                                             var inst = new CallOperation(funcs);
-                                            stack_machine.Operate(inst);
+                                            if(IsDefiningFunction)
+                                                instructions.Add(inst);
+                                            else
+                                                stack_machine.Operate(inst);
                                         .)
       ]
     | LiteralExpression
@@ -221,6 +276,17 @@ Primary                                 (. IList<Delegate> funcs = null; int num
                                         .)
     ).
 /*------------------------------------------------------------------*/
+FunctionDefinitionTrailer<string name>  (. var args = new List<string>(); .)
+=
+    '('
+    { ident                             (. args.Add(t.val); .)
+    }
+    ')'
+    ":="                                (. instructions = new List<IInstruction>(); .)
+    Expression                          (.
+                                            StackMachine.Symbols.AddFunction(name, CreateDelegate(args));
+                                        .).
+/*------------------------------------------------------------------*/
 LiteralExpression
 =
     ( integer                               (.
@@ -236,7 +302,7 @@ LiteralExpression
                                                     variable = new Variable(tmp);
                                                 }else{
                                                     double tmp = double.Parse(t.val);
-                                                    var variable = new Variable(tmp);
+                                                    variable = new Variable(tmp);
                                                 }
                                                 stack_machine.PushOnStack(variable);
                                             .)

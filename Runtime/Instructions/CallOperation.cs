@@ -33,18 +33,23 @@ namespace CalculatorCompetition.Backend.Runtime.Instruction
             Delegate real_target = null;
             // Do an easy overload resolution
             foreach(var call_target in call_targets){
-                int i = 0;
-                foreach(var param_tuple in call_target.Method.GetParameters()
-                    .Zip(arguments, (a, b) => new Tuple<ParameterInfo, Variable>(a, b))){
-                    if(param_tuple.Item1.ParameterType.IsAssignableFrom(param_tuple.Item2.Value.GetType()))
-                        ++i;
-                    else
-                        break;
-                }
-
-                if(i == call_target.Method.GetParameters().Length){
+                if(call_target.Method.Name == "Call"){
                     real_target = call_target;
                     break;
+                }else{
+                    int i = 0;
+                    foreach(var param_tuple in call_target.Method.GetParameters()
+                        .Zip(arguments, (a, b) => new Tuple<ParameterInfo, Variable>(a, b))){
+                        if(param_tuple.Item1.ParameterType.IsAssignableFrom(param_tuple.Item2.Value.GetType()))
+                            ++i;
+                        else
+                            break;
+                    }
+
+                    if(i == call_target.Method.GetParameters().Length){
+                        real_target = call_target;
+                        break;
+                    }
                 }
             }
 
@@ -56,9 +61,12 @@ namespace CalculatorCompetition.Backend.Runtime.Instruction
                 );
             }
 
-            var result = real_target.DynamicInvoke(arguments.Select(x => x.Value).ToArray());
+            object[] real_args = (real_target.Method.Name == "Call") ? new []{arguments} as object[] : arguments.Select(x => x.Value).ToArray();
+            var result = real_target.DynamicInvoke(real_args);
             var return_type = real_target.Method.ReturnType;
-            if(return_type == typeof(int))
+            if(return_type == typeof(void))
+                return null;
+            else if(return_type == typeof(int))
                 return new []{new Variable((int)result)};
             else if(return_type == typeof(double))
                 return new []{new Variable((double)result)};

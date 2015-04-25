@@ -58,7 +58,6 @@
     <Compile Include="Runtime\Instructions\NegateOperation.cs" />
     <Compile Include="Runtime\Instructions\CalculateFactorialOperation.cs" />
     <Compile Include="Runtime\Instructions\CallOperation.cs" />
-    <Compile Include="Runtime\Instructions\DefineFunctionOperation.cs" />
     <Compile Include="Runtime\VariableType.cs" />
     <Compile Include="Runtime\BasicOperationHelper.cs" />
     <Compile Include="Runtime\GenericOperatorHelper.cs" />
@@ -66,8 +65,10 @@
     <Compile Include="TypeSystem\Vector.cs" />
     <Compile Include="Runtime\Instructions\AssignOperation.cs" />
     <Compile Include="Runtime\SymbolManipulator.cs" />
-    <Compile Include="Parser.cs" />
     <Compile Include="Scanner.cs" />
+    <Compile Include="Parser.cs" />
+    <Compile Include="Runtime\UserDefinedFunction.cs" />
+    <Compile Include="Runtime\Instructions\ReferenceSymbolOperation.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <ItemGroup>

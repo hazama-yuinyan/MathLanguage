@@ -149,6 +149,36 @@ a ^ k";
                 Helper.CompareToExpected(Parser.Results.Reverse(), expected);
             }
         }
+
+        [Test]
+        public void Functions()
+        {
+            var source = @"a() := 1 + 2
+b(x) := 2 - x
+sin(2.0)
+cos(2.0)
+tan(2.0)
+a()
+b(3)";
+
+            var expected = new Variable[]{
+                new Variable(Math.Sin(2.0)),
+                new Variable(Math.Cos(2.0)),
+                new Variable(Math.Tan(2.0)),
+                new Variable(3),
+                new Variable(-1)
+            };
+
+            var bytes = Encoding.UTF8.GetBytes(source);
+            using(var output = new StringWriter())
+            using(var stream = new MemoryStream(bytes)){
+                var parser = new Parser(new Scanner(stream));
+                Parser.Output = output;
+                parser.Parse();
+                Console.Out.Write(output);
+                Helper.CompareToExpected(Parser.Results.Reverse(), expected);
+            }
+        }
     }
 }
 

@@ -215,6 +215,11 @@ namespace CalculatorCompetition.Backend.TypeSystem
             return true;
         }
 
+        public override int GetHashCode()
+        {
+            return base.GetHashCode();
+        }
+
         public override string ToString()
         {
             var builder = new StringBuilder();

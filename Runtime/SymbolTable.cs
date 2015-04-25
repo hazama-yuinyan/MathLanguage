@@ -12,6 +12,11 @@ namespace CalculatorCompetition.Backend.Runtime
         Dictionary<string, Variable> variable_table = new Dictionary<string, Variable>();
         Dictionary<string, IList<Delegate>> function_table = new Dictionary<string, IList<Delegate>>();
 
+        public bool HasVariable(string name)
+        {
+            return variable_table.ContainsKey(name);
+        }
+
         public void AssignVariable(string name, Variable new_value)
         {
             if(!variable_table.ContainsKey(name))
