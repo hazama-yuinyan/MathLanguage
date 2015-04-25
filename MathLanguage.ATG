@@ -1,0 +1,285 @@
+﻿using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Numerics;
+using System.Text.RegularExpressions;
+
+using CalculatorCompetition.Backend.Runtime;
+using CalculatorCompetition.Backend.Runtime.Instruction;
+using CalculatorCompetition.Backend.TypeSystem;
+
+
+COMPILER MathLanguage
+
+$namespace=MathLanguage
+    static StackMachine stack_machine = new StackMachine();
+    public static TextWriter Output{
+        get; set;
+    }
+
+    /// <summary>
+    /// Gets all the variables that are on the stack.
+    /// </summary>
+    public static IEnumerable<Variable> Results{
+        get{
+            var tmp = new List<Variable>();
+            while(!StackMachine.IsStackEmpty)
+                tmp.Add(stack_machine.PopOffStack());
+            
+            return tmp;
+        }
+    }
+
+    bool IsAssignment()
+    {
+        var x = scanner.Peek();
+        scanner.ResetPeek();
+        return x.kind == _equal;
+    }
+
+CHARACTERS
+    letter = 'A'..'Z' + 'a'..'z'.
+    digit = '0'..'9'.
+    space = ' '.
+    cr = '\r'.
+    lf = '\n'.
+    tab = '\t'.
+
+TOKENS
+    lparen = '('.
+    rparen = ')'.
+    equal = '='.
+    space = space.
+    eol = lf.
+    ident = (letter | '_') {'_' | letter | digit}.
+    integer = digit {digit | '_'}.
+    float = (digit {digit | '_'} '.' [('e' | 'E') ['+' | '-'] digit {digit | '_'}]
+            | [digit {digit | '_'}] '.' digit {digit | '_'} [('e' | 'E') ['+' | '-'] digit {digit | '_'}]
+            ).
+
+COMMENTS FROM "#" TO lf
+
+IGNORE cr + tab
+
+
+
+
+PRODUCTIONS
+MathLanguage
+=
+    Statement
+    { Statement
+    }.
+/*------------------------------------------------------------------*/
+Statement
+=
+    ( IF(IsAssignment())
+      Assignment
+    | Expression            (. if(Output != null) Output.WriteLine(stack_machine.PeekAtStack()); .)
+    )
+    ( SYNC eol
+    | EOF
+    ).
+/*------------------------------------------------------------------*/
+Assignment
+=
+    ident                   (. string name = t.val; .)
+    '='
+    Expression              (.
+                                var inst = new AssignOperation(StackMachine.Symbols, name);
+                                stack_machine.Operate(inst);
+                                if(Output != null)
+                                    Output.WriteLine(StackMachine.Symbols.GetVariable(name));
+                            .).
+/*------------------------------------------------------------------*/
+Expression
+=
+    Additive.
+/*------------------------------------------------------------------*/
+Additive                            (. OperatorType type; .)
+=
+    Multiplicative
+    [ AdditiveOperator<out type>
+      Additive                      (.
+                                        IInstruction inst = (type == OperatorType.Plus) ? new AddOperation() as IInstruction : new SubtractOperation() as IInstruction;
+                                        stack_machine.Operate(inst);
+                                    .)
+    ].
+/*------------------------------------------------------------------*/
+AdditiveOperator<out OperatorType type> (. type = OperatorType.None; .)
+=
+    ( '+'               (. type = OperatorType.Plus; .)
+    | '-'               (. type = OperatorType.Minus; .)
+    ).
+/*------------------------------------------------------------------*/
+Multiplicative                      (. OperatorType type; .)
+=
+    PowerOp
+    [ MultiplicativeOperator<out type>
+      Multiplicative                (.
+                                        IInstruction inst = (type == OperatorType.Times) ? new MultiplyOperation() as IInstruction :
+                                                            (type == OperatorType.Divide) ? new DivideOperation() as IInstruction : new DotProductOperation() as IInstruction;
+                                        stack_machine.Operate(inst);
+                                    .)
+    ].
+/*------------------------------------------------------------------*/
+MultiplicativeOperator<out OperatorType type>   (. type = OperatorType.None; .)
+=
+    ( '*'               (. type = OperatorType.Times; .)
+    | '/'               (. type = OperatorType.Divide; .)
+    | '.'               (. type = OperatorType.Dot; .)
+    ).
+/*------------------------------------------------------------------*/
+PowerOp
+=
+    Factor
+    [ '^'
+      Factor                        (.
+                                        var inst = new PowerOperation();
+                                        stack_machine.Operate(inst);
+                                    .)
+    ].
+/*------------------------------------------------------------------*/
+Factor                                  (. OperatorType type; .)
+=
+    ( Primary
+    | PrefixUnaryOperator<out type>
+      Factor                            (.
+                                            if(type == OperatorType.Minus){
+                                                var inst = new NegateOperation();
+                                                stack_machine.Operate(inst);
+                                            }
+                                        .)
+    )
+    [ '!'                               (.
+                                            var inst = new CalculateFactorialOperation();
+                                            stack_machine.Operate(inst);
+                                        .)
+    ].
+/*------------------------------------------------------------------*/
+PrefixUnaryOperator<out OperatorType type>  (. type = OperatorType.None; .)
+=
+     ( '+'                              (. type = OperatorType.Plus; .)
+     | '-'                              (. type = OperatorType.Minus; .)
+     ).
+/*------------------------------------------------------------------*/
+PostfixUnaryOperator<out OperatorType type>
+=
+    ('!')                               (. type = OperatorType.Exclamation; .).
+/*------------------------------------------------------------------*/
+Primary                                 (. IList<Delegate> funcs = null; int num_args = 0; .)
+=
+    ( ident                             (. if(la.kind == _lparen){
+                                               funcs = StackMachine.Symbols.GetFunction(t.val);
+                                               if(funcs == null){
+                                                   SemErr(string.Format("{0} is an unknown function name!", t.val));
+                                                   return;
+                                               }
+                                           }else{
+                                                var value = StackMachine.Symbols.GetVariable(t.val);
+                                                stack_machine.PushOnStack(value);
+                                           }
+                                        .)
+      [ '('                             (. var parameters = new List<object>(); .)
+        [ Expression                    (. ++num_args; .)
+          { ','
+            Expression                  (. ++num_args; .)
+          }
+        ]
+        ')'                             (.
+                                            var inst = new CallOperation(funcs);
+                                            stack_machine.Operate(inst);
+                                        .)
+      ]
+    | LiteralExpression
+    | '('                               (.
+                                            scanner.IsSpaceSignificant = true;
+                                            int num_elems = 0;
+                                            var elems = new List<Variable>();
+                                        .)
+      Expression                        (.
+                                            if(la.kind != _rparen){
+                                                ++num_elems;
+                                                elems.Add(stack_machine.PopOffStack());
+                                            }
+                                        .)
+      { space
+        Expression                      (. ++num_elems; elems.Add(stack_machine.PopOffStack()); .)
+      }
+      ')'                               (.
+                                            if(elems[0].IsInteger){
+                                                var vector = new Vector<int>(elems.Select(x => x.AsInteger));
+                                                stack_machine.PushOnStack(new Variable(vector));
+                                            }else if(elems[0].IsDouble){
+                                                var vector = new Vector<double>(elems.Select(x => x.AsDouble));
+                                                stack_machine.PushOnStack(new Variable(vector));
+                                            }else{
+                                                SemErr(string.Format("Can not create a vector of type `{0}`", elems[0].TypeFlag));
+                                            }
+                                            scanner.IsSpaceSignificant = false;
+                                        .)
+    ).
+/*------------------------------------------------------------------*/
+LiteralExpression
+=
+    ( integer                               (.
+                                                //if(t.val.Length >= int.MaxValue.ToString().Length)
+                                                int tmp = int.Parse(t.val);
+                                                var variable = new Variable(tmp);
+                                                stack_machine.PushOnStack(variable);
+                                            .)
+    | float                                 (.
+                                                Variable variable;
+                                                if(t.val.Length > 8){
+                                                    decimal tmp = decimal.Parse(t.val);
+                                                    variable = new Variable(tmp);
+                                                }else{
+                                                    double tmp = double.Parse(t.val);
+                                                    var variable = new Variable(tmp);
+                                                }
+                                                stack_machine.PushOnStack(variable);
+                                            .)
+    | '['                                   (.
+                                                scanner.IsSpaceSignificant = true;
+                                                int num_elems = 0;
+                                                int rows = 0, cols = 0;
+                                                var elems = new List<Variable>();
+                                            .)
+      Expression                            (. ++num_elems; elems.Add(stack_machine.PopOffStack()); .)
+      space
+      Expression                            (. ++num_elems; elems.Add(stack_machine.PopOffStack()); .)
+      { ( ','                               (.
+                                                ++rows;
+                                                if(cols == 0)
+                                                    cols = num_elems;
+                                            .)
+          { space
+          }
+        | space
+        ) Expression                        (. ++num_elems; elems.Add(stack_machine.PopOffStack()); .)
+      }
+      ']'                                   (.
+                                                if(num_elems % cols != 0){
+                                                    SemErr(string.Format(
+                                                        "The matrix should be {0} x {1}, only {2} elements given.",
+                                                        rows, cols, num_elems
+                                                    ));
+                                                }else{
+                                                    ++rows;
+                                                }
+
+                                                if(elems[0].IsInteger){
+                                                    var matrix = new Matrix<int>(rows, cols, elems.Select(x => x.AsInteger));
+                                                    var variable = new Variable(matrix);
+                                                    stack_machine.PushOnStack(variable);
+                                                }else{
+                                                    var matrix = new Matrix<double>(rows, cols, elems.Select(x => x.AsDouble));
+                                                    var variable = new Variable(matrix);
+                                                    stack_machine.PushOnStack(variable);
+                                                }
+                                                scanner.IsSpaceSignificant = false;
+                                            .)
+    ).
+
+END MathLanguage.
